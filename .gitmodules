@@ -1,0 +1,3 @@
+[submodule "apps/homography/third_party/apriltags"]
+	path = apps/homography/third_party/apriltags
+	url = https://github.com/seeeheng/apriltags
