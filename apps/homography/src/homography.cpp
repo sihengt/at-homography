@@ -362,27 +362,19 @@ bool Homography::readBoardConfig(std::string board_yaml_fp)
 
 void Homography::drawStars(std::vector<cv::Point2f> &stars, cv::Mat &H)
 {
-    std::vector<cv::Point3d> homo_stars;
-    std::vector<cv::Mat> transformed_stars;
-
-    // Initializing an array to hold data of all star coordinates.
-
+    // Initializing vector which will contain estimated star coordinates in homogeneous coordinates
+    std::vector<cv::Point3d> stars_h;
     for (auto star : stars)
-    {
-        homo_stars.push_back(cv::Point3d(star.x, star.y, 1));
-        // double star_data[3][1] = {star.x, star.y, 1};
-
-        // cv::Mat to_push(3, 1, CV_64FC1, star_data);
-        // std::cout << "to_push:" << to_push << std::endl;
-        // homo_stars.push_back(cv::Mat(3, 1, CV_64FC1, star_data));
-    }
+        stars_h.push_back(cv::Point3d(star.x, star.y, 1));
 
     // Converting the matrix from a vector of point3Ds to a matrix of size 3xn
-    cv::Mat homo_stars_matrix = cv::Mat(homo_stars).reshape(1).t();
-    // std::cout << "homo_stars_mat" << homo_stars_matrix << std::endl;
-    // std::cout << "homo_stars_mat.rows=" << homo_stars_matrix.rows << "\tcols:" << homo_stars_matrix.cols << std::endl;
-    std::cout << "H*homo_stars_mat" << H * homo_stars_matrix << std::endl;
-    cv::Mat result = H * homo_stars_matrix;
+    cv::Mat stars_h_matrix = cv::Mat(stars_h).reshape(1).t();
+    // std::cout << "stars_h_mat" << stars_h_matrix << std::endl;
+    // std::cout << "stars_h_mat.rows=" << stars_h_matrix.rows << "\tcols:" << stars_h_matrix.cols << std::endl;
+    // std::cout << "H*stars_h_mat" << H * stars_h_matrix << std::endl;
+
+    // Projecting stars in homogeneous coordinates through homography from board (through geometry) to image plane. 
+    cv::Mat result = H * stars_h_matrix;
 
     // Convert result into point2f for plotting.
     for (int n = 0; n < result.cols; n++)
@@ -407,36 +399,52 @@ int main()
 
     h.setup();
 
+    // TODO: fix file I/O to make it more general; currently hard-coded to read one image.
     // Read image. Temporary; to substitute with reading multiple images.
     cv::Mat image = cv::imread("/home/siheng/dha/at_homography/data/images/IMG_5574.jpg", 1);
+    
+    // TODO: perhaps include parameter for downsizing image for visualization.
+    // Resizes image to be smaller, mostly for convenience.
     cv::Mat imageS;
     cv::resize(image, imageS, cv::Size(cv::Point2i(0, 0)), 0.4, 0.4);
     h.setCurrentImage(imageS);
 
+    // Uses fork of Kaess's AprilTag library to detect AprilTags.
     h.detectApriltags();
-    h.processDetections(at_detections);
     cv::waitKey(0);
 
+    // Converts apriltag_detections from custom class used within AprilTag library to a vector of pairs.
+    // Each pair contains the apriltag ID corresponding to the a vector<point2f> containing corner points of the AT.
+    // The points are always added into the vector<point2f> in a CCW manner starting from the bottom left point.
+    h.processDetections(at_detections);
+
+    // Reads custom board configuration generated from Nicholas's board generation script.
     h.readBoardConfig("/home/siheng/dha/at_homography/data/board/experiment_target.yaml");
     YAML::Node board_yaml_node = YAML::LoadFile("/home/siheng/dha/at_homography/data/board/experiment_target.yaml");
     Board board_config;
     std::vector<cv::Point2f> board_points, star_points, at_points;
 
+    // Generates coordinates of AprilTag / stars through using geometry.
+    // These functions use the board yaml definition to generate points of interest on the calibration board.
     h.generateAprilTagCoords(board_points);
     h.generateStarCoords(star_points);
+
+    // Processes actual AprilTag detections so the points from the AprilTag detections line up with the points 
+    // of AprilTag generatd using prior knowledge of board's geometry. 
     h.processAprilTagDetections(at_detections, at_points);
 
+    // Finding transform from board to AprilTag on captured image using least squares. 
     cv::Mat homography;
     homography = cv::findHomography(board_points, at_points);
     std::cout << "M = " << std::endl
               << " " << homography << std::endl
               << std::endl;
 
-    std::cout << "H type:" << type2str(homography.type()) << std::endl;
-    h.drawStars(star_points, homography);
+    // std::cout << "H type:" << type2str(homography.type()) << std::endl;
 
-    std::vector<int> apriltag_ids;
-    h.findRelevantAprilTags(apriltag_ids);
+    // Draws estimated star points on image as a sanity check.
+    // TODO: transformation code for getting stars on image through homography is coupled into this function.
+    h.drawStars(star_points, homography);
 
     return 0;
 }
